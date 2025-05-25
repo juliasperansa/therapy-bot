@@ -1,5 +1,6 @@
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram.ext import Application
 from config import TELEGRAM_TOKEN
 from db import (init_db, save_message, get_role, assign_role, get_last_messages,
                 get_partner_summary, get_user_summary, create_invite, use_invite, get_pair_id,
@@ -8,12 +9,15 @@ from gpt import ask_gpt
 
 import asyncio
 from telegram import Bot
+from flask import Flask, request
+import os
 
 pending_roles = {}
 pending_invites = {}
 created_pairs = set()
 
 bot = Bot(token=TELEGRAM_TOKEN)
+app = Flask(__name__)
 
 async def reminder_loop():
     while True:
@@ -42,7 +46,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     print(f"[DEBUG] user_id: {user_id}, role: {role}, pair_id: {pair_id}")
 
-    # Проверка: если уже назначена роль, но нет пары — позволяем начать беседу
     if role and not pair_id:
         save_message(user_id, None, role, message)
         user_history = [message]
@@ -59,7 +62,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reply)
         return
 
-    # Полноценный диалог
     if role and pair_id:
         save_message(user_id, pair_id, role, message)
         user_history = get_last_messages(pair_id)
@@ -76,7 +78,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reply)
         return
 
-    # Начало регистрации: пользователь без роли и без кода
     if not role and user_id not in pending_roles and user_id not in pending_invites:
         pending_roles[user_id] = True
         keyboard = ReplyKeyboardMarkup(
@@ -90,7 +91,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Выбор роли — создание инвайта
     if user_id in pending_roles and lowered in ['муж', 'жена']:
         role_value = 'husband' if lowered == 'муж' else 'wife'
         invite_code = f"PAIR{user_id}"
@@ -111,7 +111,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(instruction)
         return
 
-    # Присоединение по инвайт-коду
     if not role and message.startswith("PAIR"):
         new_pair_id = use_invite(message, user_id)
         if not new_pair_id:
@@ -129,7 +128,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Теперь выбери свою роль в отношениях:", reply_markup=keyboard)
         return
 
-    # Завершение присоединения
     if user_id in pending_roles and lowered in ['муж', 'жена'] and user_id in pending_invites:
         role_value = 'husband' if lowered == 'муж' else 'wife'
         pair_id = pending_invites[user_id]
@@ -149,12 +147,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    from telegram import Update
+    from telegram.ext import Dispatcher
+    from telegram.ext import ContextTypes
+
+    tg_update = Update.de_json(request.get_json(force=True), bot)
+    dispatcher = Dispatcher(bot=bot, update_queue=None, workers=0, use_context=True)
+    dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    dispatcher.process_update(tg_update)
+    return "ok"
+
+
 if __name__ == "__main__":
     init_db()
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
     loop = asyncio.get_event_loop()
     loop.create_task(reminder_loop())
-    print("Бот запущен...")
-    app.run_polling()
+    print("Бот (Webhook) запущен...")
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
