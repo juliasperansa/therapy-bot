@@ -1,4 +1,4 @@
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 from config import TELEGRAM_TOKEN
 from db import (init_db, save_message, get_role, assign_role, get_last_messages,
@@ -42,6 +42,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     print(f"[DEBUG] user_id: {user_id}, role: {role}, pair_id: {pair_id}")
 
+    # Проверка: если уже назначена роль, но нет пары — позволяем начать беседу
+    if role and not pair_id:
+        save_message(user_id, None, role, message)
+        user_history = [message]
+        user_summary = get_user_summary(user_id)
+        partner_summary = "(партнёр ещё не присоединился)"
+
+        reply = ask_gpt(
+            user_history=user_history,
+            partner_summary=partner_summary,
+            user_summary=user_summary,
+            gender="женский" if role == "wife" else "мужской"
+        )
+
+        await update.message.reply_text(reply)
+        return
+
+    # Полноценный диалог
     if role and pair_id:
         save_message(user_id, pair_id, role, message)
         user_history = get_last_messages(pair_id)
@@ -58,14 +76,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reply)
         return
 
+    # Начало регистрации: пользователь без роли и без кода
     if not role and user_id not in pending_roles and user_id not in pending_invites:
         pending_roles[user_id] = True
-        keyboard = ReplyKeyboardMarkup([['Муж'], ['Жена']], one_time_keyboard=True, resize_keyboard=True)
+        keyboard = ReplyKeyboardMarkup(
+            [[KeyboardButton("Муж")], [KeyboardButton("Жена")]],
+            one_time_keyboard=True,
+            resize_keyboard=True,
+            input_field_placeholder="Выберите роль: Муж или Жена"
+        )
         await update.message.reply_text(
             "Привет! Пожалуйста, выбери свою роль:", reply_markup=keyboard
         )
         return
 
+    # Выбор роли — создание инвайта
     if user_id in pending_roles and lowered in ['муж', 'жена']:
         role_value = 'husband' if lowered == 'муж' else 'wife'
         invite_code = f"PAIR{user_id}"
@@ -86,6 +111,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(instruction)
         return
 
+    # Присоединение по инвайт-коду
     if not role and message.startswith("PAIR"):
         new_pair_id = use_invite(message, user_id)
         if not new_pair_id:
@@ -94,10 +120,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         pending_roles[user_id] = True
         pending_invites[user_id] = new_pair_id
-        keyboard = ReplyKeyboardMarkup([['Муж'], ['Жена']], one_time_keyboard=True, resize_keyboard=True)
+        keyboard = ReplyKeyboardMarkup(
+            [[KeyboardButton("Муж")], [KeyboardButton("Жена")]],
+            one_time_keyboard=True,
+            resize_keyboard=True,
+            input_field_placeholder="Выберите роль"
+        )
         await update.message.reply_text("Теперь выбери свою роль в отношениях:", reply_markup=keyboard)
         return
 
+    # Завершение присоединения
     if user_id in pending_roles and lowered in ['муж', 'жена'] and user_id in pending_invites:
         role_value = 'husband' if lowered == 'муж' else 'wife'
         pair_id = pending_invites[user_id]
