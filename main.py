@@ -31,22 +31,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 2. Пользователь выбрал роль (муж или жена)
     elif user_id in pending_roles and lowered in ['муж', 'жена']:
         role_value = 'husband' if lowered == 'муж' else 'wife'
-        invite_code = f"PAIR{user_id}"  # простой уникальный код, можно улучшить
-        create_invite(invite_code, user_id)
-        pending_invites[user_id] = role_value
-        del pending_roles[user_id]
 
-        instruction = (
-            f"Отлично! Теперь отправь своему партнёру вот такой код:\n\n"
-            f"\"{invite_code}\"\n\n"
-            f"🔸 Это и есть код вашей пары. Он должен быть скопирован полностью — вместе со словом PAIR и цифрами. Ничего не менять.\n\n"
-            f"👉 Партнёр должен:\n"
-            f"1. Перейти в этого же бота (в Telegram)\n"
-            f"2. В первом сообщении в чате с ботом просто отправить только этот код — без комментариев, без текста, без смайликов. Только сам код, как есть."
-        )
+        # Проверка: если пользователь уже создаёт пару, создаём invite
+        if user_id not in pending_invites:
+            invite_code = f"PAIR{user_id}"  # простой уникальный код
+            create_invite(invite_code, user_id)
+            pending_invites[user_id] = role_value
 
-        await update.message.reply_text(instruction)
-        return
+            instruction = (
+                f"Отлично! Теперь отправь своему партнёру вот такой код:\n\n"
+                f"\"{invite_code}\"\n\n"
+                f"🔸 Это и есть код вашей пары. Он должен быть скопирован полностью — вместе со словом PAIR и цифрами. Ничего не менять.\n\n"
+                f"👉 Партнёр должен:\n"
+                f"1. Перейти в этого же бота (в Telegram)\n"
+                f"2. В первом сообщении в чате с ботом просто отправить только этот код — без комментариев, без текста, без смайликов. Только сам код, как есть."
+            )
+
+            await update.message.reply_text(instruction)
+            del pending_roles[user_id]
+            return
 
     # 3. Пользователь вводит инвайт-код, чтобы присоединиться
     elif not role and message.startswith("PAIR"):
@@ -57,10 +60,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = ReplyKeyboardMarkup([['Муж'], ['Жена']], one_time_keyboard=True, resize_keyboard=True)
         pending_roles[user_id] = True
+        pending_invites[user_id] = pair_id
         await update.message.reply_text(
             "Теперь выбери свою роль в отношениях:", reply_markup=keyboard
         )
-        pending_invites[user_id] = pair_id
         return
 
     elif user_id in pending_roles and lowered in ['муж', 'жена'] and user_id in pending_invites:
