@@ -6,6 +6,9 @@ from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes
 import asyncio
 
+pending_roles = {}
+pending_invites = {}
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     message = update.message.text.strip()
@@ -116,15 +119,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Пожалуйста, начни с выбора роли или ввода кода приглашения.")
         return
 
-pending_roles = {}
-pending_invites = {}
-
-async def main():
-    init_db()
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("Бот запущен...")
-    await app.run_polling()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+# 👇 Теперь просто запускаем без asyncio.run()
+init_db()
+app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+print("Бот запущен...")
+app.run_polling()
