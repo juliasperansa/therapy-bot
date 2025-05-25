@@ -1,42 +1,44 @@
 import sqlite3
 import datetime
+import os
 
-conn = sqlite3.connect("memory.db")
+# Автоматическое создание БД, если она по какой-то причине улетела в ад
+DB_PATH = "memory.db"
+should_init = not os.path.exists(DB_PATH)
+
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 c = conn.cursor()
+
+if should_init:
+    print("[DB] Создаём новую базу данных, старую не нашли.")
+    c.execute("""CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        pair_id INTEGER,
+        role TEXT,
+        message TEXT
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS roles (
+        user_id INTEGER PRIMARY KEY,
+        role TEXT,
+        pair_id INTEGER
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS invites (
+        invite_code TEXT PRIMARY KEY,
+        inviter_id INTEGER,
+        created_at TEXT
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS pairs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        inviter_id INTEGER,
+        invitee_id INTEGER
+    )""")
+    conn.commit()
 
 
 def init_db():
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            pair_id INTEGER,
-            role TEXT,
-            message TEXT
-        )
-    """)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS roles (
-            user_id INTEGER PRIMARY KEY,
-            role TEXT,
-            pair_id INTEGER
-        )
-    """)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS invites (
-            invite_code TEXT PRIMARY KEY,
-            inviter_id INTEGER,
-            created_at TEXT
-        )
-    """)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS pairs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            inviter_id INTEGER,
-            invitee_id INTEGER
-        )
-    """)
-    conn.commit()
+    # На всякий случай вручную вызвать можно, но чаще уже не надо
+    pass
 
 
 def save_message(user_id, pair_id, role, message):
