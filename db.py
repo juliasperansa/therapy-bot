@@ -1,4 +1,5 @@
 import sqlite3
+import datetime
 
 conn = sqlite3.connect("memory.db")
 c = conn.cursor()
@@ -24,7 +25,8 @@ def init_db():
     c.execute("""
         CREATE TABLE IF NOT EXISTS invites (
             invite_code TEXT PRIMARY KEY,
-            inviter_id INTEGER
+            inviter_id INTEGER,
+            created_at TEXT
         )
     """)
     c.execute("""
@@ -66,7 +68,9 @@ def assign_role(user_id, role, pair_id):
 
 
 def create_invite(invite_code, inviter_id):
-    c.execute("INSERT INTO invites (invite_code, inviter_id) VALUES (?, ?)", (invite_code, inviter_id))
+    now = datetime.datetime.utcnow().isoformat()
+    c.execute("INSERT INTO invites (invite_code, inviter_id, created_at) VALUES (?, ?, ?)",
+              (invite_code, inviter_id, now))
     conn.commit()
 
 
@@ -77,14 +81,23 @@ def use_invite(invite_code, user_id):
         return None
     inviter_id = row[0]
 
-    # Создаём пару
     c.execute("INSERT INTO pairs (inviter_id, invitee_id) VALUES (?, ?)", (inviter_id, user_id))
     conn.commit()
 
-    # Получаем ID новой пары
     c.execute("SELECT id FROM pairs WHERE inviter_id = ? AND invitee_id = ?", (inviter_id, user_id))
     row = c.fetchone()
-    return row[0] if row else None
+    if row:
+        pair_id = row[0]
+        assign_pair_id_to_inviter(inviter_id, pair_id)
+        c.execute("DELETE FROM invites WHERE invite_code = ?", (invite_code,))
+        conn.commit()
+        return pair_id
+    return None
+
+
+def assign_pair_id_to_inviter(user_id, pair_id):
+    c.execute("UPDATE roles SET pair_id = ? WHERE user_id = ?", (pair_id, user_id))
+    conn.commit()
 
 
 def get_last_messages(pair_id, limit=10):
@@ -103,3 +116,9 @@ def get_user_summary(user_id, limit=20):
     c.execute("SELECT message FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT ?", (user_id, limit))
     messages = [row[0] for row in c.fetchall()][::-1]
     return "\n".join(messages)
+
+
+def get_pending_invites_older_than(hours):
+    cutoff = (datetime.datetime.utcnow() - datetime.timedelta(hours=hours)).isoformat()
+    c.execute("SELECT inviter_id, invite_code FROM invites WHERE created_at <= ?", (cutoff,))
+    return c.fetchall()
